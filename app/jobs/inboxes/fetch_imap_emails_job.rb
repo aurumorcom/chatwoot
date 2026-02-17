@@ -6,23 +6,29 @@ class Inboxes::FetchImapEmailsJob < MutexApplicationJob
   def perform(channel, interval = 1)
     return unless should_fetch_email?(channel)
 
-    key = format(::Redis::Alfred::EMAIL_MESSAGE_MUTEX, inbox_id: channel.inbox.id)
-
-    with_lock(key, 5.minutes) do
-      process_email_for_channel(channel, interval)
-    end
-  rescue *ExceptionList::IMAP_EXCEPTIONS => e
-    Rails.logger.error "Authorization error for email channel - #{channel.inbox.id} : #{e.message}"
-  rescue EOFError, OpenSSL::SSL::SSLError, Net::IMAP::NoResponseError, Net::IMAP::BadResponseError, Net::IMAP::InvalidResponseError,
-         Net::IMAP::ResponseParseError, Net::IMAP::ResponseReadError, Net::IMAP::ResponseTooLargeError => e
-    Rails.logger.error "Error for email channel - #{channel.inbox.id} : #{e.message}"
-  rescue LockAcquisitionError
-    Rails.logger.error "Lock failed for #{channel.inbox.id}"
+    fetch_emails_with_lock(channel, interval)
   rescue StandardError => e
     ChatwootExceptionTracker.new(e, account: channel.account).capture_exception
   end
 
   private
+
+  def fetch_emails_with_lock(channel, interval)
+    key = format(::Redis::Alfred::EMAIL_MESSAGE_MUTEX, inbox_id: channel.inbox.id)
+    with_lock(key, 5.minutes) { process_email_for_channel(channel, interval) }
+  rescue *ExceptionList::IMAP_EXCEPTIONS, EOFError, OpenSSL::SSL::SSLError,
+         Net::IMAP::ResponseReadError, Net::IMAP::ResponseTooLargeError => e
+    log_channel_error(channel, e)
+  rescue Net::IMAP::NoResponseError, Net::IMAP::BadResponseError, Net::IMAP::InvalidResponseError => e
+    log_channel_error(channel, e)
+    channel.authorization_error!
+  rescue LockAcquisitionError
+    Rails.logger.error "Lock failed for #{channel.inbox.id}"
+  end
+
+  def log_channel_error(channel, err)
+    Rails.logger.error "Error for email channel - #{channel.inbox.id} : #{err.message}"
+  end
 
   def should_fetch_email?(channel)
     channel.imap_enabled? && !channel.reauthorization_required?
