@@ -3,6 +3,8 @@ require 'net/imap'
 class Inboxes::FetchImapEmailsJob < MutexApplicationJob
   queue_as :scheduled_jobs
 
+  IMAP_ERROR_THRESHOLD = { window: 1.hour, count: 55 }.freeze
+
   def perform(channel, interval = 1)
     return unless should_fetch_email?(channel)
 
@@ -16,18 +18,22 @@ class Inboxes::FetchImapEmailsJob < MutexApplicationJob
   def fetch_emails_with_lock(channel, interval)
     key = format(::Redis::Alfred::EMAIL_MESSAGE_MUTEX, inbox_id: channel.inbox.id)
     with_lock(key, 5.minutes) { process_email_for_channel(channel, interval) }
-  rescue *ExceptionList::IMAP_EXCEPTIONS, EOFError, OpenSSL::SSL::SSLError,
-         Net::IMAP::ResponseReadError, Net::IMAP::ResponseTooLargeError => e
-    log_channel_error(channel, e)
-  rescue Net::IMAP::NoResponseError, Net::IMAP::BadResponseError, Net::IMAP::InvalidResponseError => e
-    log_channel_error(channel, e)
-    channel.authorization_error!
+  rescue *ExceptionList::IMAP_EXCEPTIONS => e
+    Rails.logger.error "Authorization error for email channel - #{channel.inbox.id} : #{e.message}"
+    track_imap_error!(channel)
+  rescue EOFError, OpenSSL::SSL::SSLError, Net::IMAP::NoResponseError, Net::IMAP::BadResponseError, Net::IMAP::InvalidResponseError,
+         Net::IMAP::ResponseParseError, Net::IMAP::ResponseReadError, Net::IMAP::ResponseTooLargeError => e
+    Rails.logger.error "Error for email channel - #{channel.inbox.id} : #{e.message}"
+    track_imap_error!(channel)
   rescue LockAcquisitionError
     Rails.logger.error "Lock failed for #{channel.inbox.id}"
   end
 
-  def log_channel_error(channel, err)
-    Rails.logger.error "Error for email channel - #{channel.inbox.id} : #{err.message}"
+  def track_imap_error!(channel)
+    key = format(::Redis::Alfred::IMAP_ERROR_COUNT, channel_id: channel.id, window: IMAP_ERROR_THRESHOLD[:window].to_i)
+    count = ::Redis::Alfred.incr(key)
+    ::Redis::Alfred.expire(key, IMAP_ERROR_THRESHOLD[:window].to_i) if count == 1
+    channel.prompt_reauthorization! if count > IMAP_ERROR_THRESHOLD[:count]
   end
 
   def should_fetch_email?(channel)

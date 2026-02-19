@@ -26,6 +26,7 @@ module Redis::RedisKeys
   # Used to track token expiry and such issues for facebook slack integrations etc
   AUTHORIZATION_ERROR_COUNT = 'AUTHORIZATION_ERROR_COUNT:%<obj_type>s:%<obj_id>d'.freeze
   REAUTHORIZATION_REQUIRED =  'REAUTHORIZATION_REQUIRED:%<obj_type>s:%<obj_id>d'.freeze
+  IMAP_ERROR_COUNT = 'IMAP_ERROR_COUNT:%<channel_id>d:%<window>d'.freeze
 
   ## Internal Installation related keys
   CHATWOOT_INSTALLATION_ONBOARDING = 'CHATWOOT_INSTALLATION_ONBOARDING'.freeze
