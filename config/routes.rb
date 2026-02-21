@@ -156,6 +156,7 @@ Rails.application.routes.draw do
               get :reporting_events if ChatwootApp.enterprise?
             end
           end
+          resources :import_conversations, only: [:create]
 
           resources :search, only: [:index] do
             collection do
@@ -353,6 +354,7 @@ Rails.application.routes.draw do
           end
 
           resources :upload, only: [:create]
+          resources :import_conversations, only: [:create]
         end
       end
       # end of account scoped api routes
