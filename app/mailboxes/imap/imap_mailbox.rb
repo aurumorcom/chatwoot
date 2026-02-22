@@ -17,6 +17,20 @@ class Imap::ImapMailbox
     # Skip processing email if it belongs to any of the edge cases
     return unless incoming_email_from_valid_email?
 
+    # Check if this inbox is configured for "Contacts Only" mode
+    restricted_emails = ENV['IMAP_CONTACTS_ONLY_EMAILS'].to_s.split(',').map(&:strip)
+
+    if restricted_emails.include?(channel.email)
+      # Check if sender exists as a contact in this account
+      contact = @account.contacts.from_email(@processed_mail.original_sender)
+
+      # If contact does not exist, ignore the email and stop processing
+      unless contact
+        Rails.logger.info("Ignoring email from unknown sender #{@processed_mail.original_sender} for restricted inbox #{channel.email}")
+        return
+      end
+    end
+
     ActiveRecord::Base.transaction do
       find_or_create_contact
       find_or_create_conversation
