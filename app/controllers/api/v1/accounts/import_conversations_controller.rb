@@ -20,7 +20,7 @@ class Api::V1::Accounts::ImportConversationsController < Api::V1::Accounts::Base
     contact = find_or_create_contact(data[:contact], data[:inbox_id], data[:source_id])
     inbox = Current.account.inboxes.find(data[:inbox_id])
     
-    conversation = create_conversation(data[:conversation], inbox, contact, data[:source_id])
+    conversation = find_or_create_conversation(data[:conversation], inbox, contact, data[:source_id])
     
     if data[:messages].present?
       create_messages(conversation, data[:messages]) 
@@ -70,7 +70,15 @@ class Api::V1::Accounts::ImportConversationsController < Api::V1::Accounts::Base
     contact
   end
 
-  def create_conversation(conv_data, inbox, contact, source_id)
+  def find_or_create_conversation(conv_data, inbox, contact, source_id)
+    # Check if conversation already exists by external source_id
+    if conv_data.dig(:additional_attributes, :source_id).present?
+      existing_conversation = Conversation.where(account_id: Current.account.id, inbox_id: inbox.id)
+                                          .where("additional_attributes->>'source_id' = ?", conv_data[:additional_attributes][:source_id].to_s)
+                                          .first
+      return existing_conversation if existing_conversation
+    end
+
     # Determine status (default to resolved if not provided to avoid active inbox clutter)
     status = conv_data[:status] || 'resolved'
     
@@ -110,7 +118,11 @@ class Api::V1::Accounts::ImportConversationsController < Api::V1::Accounts::Base
   end
 
   def create_messages(conversation, messages_data)
-    messages_to_insert = messages_data.map do |msg_data|
+    # Filter out messages that already exist based on source_id
+    incoming_source_ids = messages_data.pluck(:source_id).map(&:to_s).compact
+    existing_source_ids = Message.where(conversation_id: conversation.id, source_id: incoming_source_ids).pluck(:source_id)
+    
+    messages_to_insert = messages_data.reject { |msg| msg[:source_id].present? && existing_source_ids.include?(msg[:source_id].to_s) }.map do |msg_data|
       # Determine sender
       sender = nil
       if msg_data[:message_type] == 'incoming'
