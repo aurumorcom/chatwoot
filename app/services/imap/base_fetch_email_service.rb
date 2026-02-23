@@ -57,7 +57,11 @@ class Imap::BaseFetchEmailService
     return if email_already_present?(channel, message_id)
 
     # Fetch the original mail content using the sequence no
-    mail_str = imap_client.fetch(seq_no, 'RFC822')[0].attr['RFC822']
+    if ENV.fetch('IMAP_ENABLE_PEEK', 'false') == 'true'
+      mail_str = imap_client.fetch(seq_no, 'BODY.PEEK[]')[0].attr['BODY[]']
+    else
+      mail_str = imap_client.fetch(seq_no, 'RFC822')[0].attr['RFC822']
+    end
 
     if mail_str.blank?
       Rails.logger.info "[IMAP::FETCH_EMAIL_SERVICE] Fetch failed for #{channel.email} with message-id <#{message_id}>."

@@ -44,6 +44,31 @@ RSpec.describe Imap::FetchEmailService do
         end
       end
 
+      context 'when IMAP_ENABLE_PEEK is enabled' do
+        before do
+          allow(ENV).to receive(:fetch).with('IMAP_ENABLE_PEEK', 'false').and_return('true')
+        end
+
+        it 'fetches with BODY.PEEK[]' do
+          travel_to '26.10.2020 10:00'.to_datetime do
+            email_object = create_inbound_email_from_fixture('only_text.eml')
+            email_header = Net::IMAP::FetchData.new(1, 'BODY[HEADER]' => eml_content_with_message_id)
+            imap_fetch_mail = Net::IMAP::FetchData.new(1, 'BODY[]' => eml_content_with_message_id)
+
+            allow(imap).to receive(:search).with(%w[SINCE 25-Oct-2020]).and_return([1])
+            allow(imap).to receive(:fetch).with([1], 'BODY.PEEK[HEADER]').and_return([email_header])
+            allow(imap).to receive(:fetch).with(1, 'BODY.PEEK[]').and_return([imap_fetch_mail])
+            allow(imap).to receive(:logout)
+
+            result = described_class.new(channel: imap_email_channel).perform
+
+            expect(result.length).to eq 1
+            expect(result[0].message_id).to eq email_object.message_id
+            expect(imap).to have_received(:fetch).with(1, 'BODY.PEEK[]')
+          end
+        end
+      end
+
       it 'fetches the emails and returns the mail objects that are not present in the db' do
         travel_to '26.10.2020 10:00'.to_datetime do
           email_object = create_inbound_email_from_fixture('only_text.eml')
