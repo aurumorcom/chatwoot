@@ -18,9 +18,9 @@ class Imap::ImapMailbox
     return unless incoming_email_from_valid_email?
 
     # Check if this inbox is configured for "Contacts Only" mode
-    restricted_emails = ENV['IMAP_CONTACTS_ONLY_EMAILS'].to_s.split(',').map(&:strip)
+    restricted_emails = ENV['IMAP_CONTACTS_ONLY_EMAILS'].to_s.split(',').map { |e| e.strip.downcase }
 
-    if restricted_emails.include?(channel.email)
+    if restricted_emails.include?(channel.email.to_s.downcase)
       # Check if sender exists as a contact in this account
       contact = @account.contacts.from_email(@processed_mail.original_sender)
 
@@ -136,3 +136,4 @@ class Imap::ImapMailbox
     processed_mail.sender_name || processed_mail.from.first.split('@').first
   end
 end
+
