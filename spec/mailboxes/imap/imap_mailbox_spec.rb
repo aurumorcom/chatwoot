@@ -313,5 +313,22 @@ RSpec.describe Imap::ImapMailbox do
         expect(agent_conversation.messages.last.content_attributes['email']['from']).to eq(reply_mail_with_multiple_references.mail.from)
       end
     end
+
+    context 'when the email is outgoing (from channel email)' do
+      let(:channel_email) { channel.email }
+      let(:recipient_email) { 'customer@example.com' }
+      let(:outgoing_mail) { create_inbound_email_from_mail(from: channel_email, to: recipient_email, subject: 'Outgoing!') }
+
+      it 'creates an outgoing message and finds contact from recipient' do
+        expect do
+          class_instance.process(outgoing_mail.mail, channel)
+        end.to change(Conversation, :count).by(1)
+
+        conversation = Conversation.last
+        expect(conversation.contact.email).to eq(recipient_email)
+        expect(conversation.messages.last.message_type).to eq('outgoing')
+        expect(conversation.messages.last.sender).to be_nil
+      end
+    end
   end
 end

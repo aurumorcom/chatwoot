@@ -36,16 +36,20 @@ class Inboxes::FetchImapEmailsJob < MutexApplicationJob
                      else
                        Imap::FetchEmailService.new(channel: channel, interval: interval).perform
                      end
-    inbound_emails.map do |inbound_mail|
-      process_mail(inbound_mail, channel)
+    inbound_emails.map do |item|
+      if item.is_a?(Hash)
+        process_mail(item[:mail], channel, folder: item[:folder])
+      else
+        process_mail(item, channel)
+      end
     end
   rescue OAuth2::Error => e
     Rails.logger.error "Error for email channel - #{channel.inbox.id} : #{e.message}"
     channel.authorization_error!
   end
 
-  def process_mail(inbound_mail, channel)
-    Imap::ImapMailbox.new.process(inbound_mail, channel)
+  def process_mail(inbound_mail, channel, folder: nil)
+    Imap::ImapMailbox.new.process(inbound_mail, channel, folder: folder)
   rescue StandardError => e
     ChatwootExceptionTracker.new(e, account: channel.account).capture_exception
     Rails.logger.error("

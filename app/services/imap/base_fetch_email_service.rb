@@ -39,7 +39,28 @@ class Imap::BaseFetchEmailService
     channel.inbox.messages.find_by(source_id: message_id).present?
   end
 
+  SENT_FOLDERS = ['Sent', 'Sent Items', '[Gmail]/Sent Mail', 'Sent Messages'].freeze
+
   def fetch_mail_for_channel
+    folders = ['INBOX']
+    if ENV['ENABLE_IMAP_CRM'] == 'true'
+      folders += SENT_FOLDERS
+      folders += ['Leads']
+    end
+
+    folders.flat_map do |folder|
+      mails = fetch_mail_from_folder(folder)
+      mails.map { |mail| { mail: mail, folder: folder } }
+    end
+  end
+
+  def fetch_mail_from_folder(folder)
+    begin
+      imap_client.select(folder)
+    rescue Net::IMAP::NoResponseError
+      return []
+    end
+
     message_ids_with_seq = fetch_message_ids_with_sequence
     message_ids_with_seq.filter_map do |message_id_with_seq|
       process_message_id(message_id_with_seq)
@@ -57,7 +78,7 @@ class Imap::BaseFetchEmailService
     return if email_already_present?(channel, message_id)
 
     # Fetch the original mail content using the sequence no
-    if ENV.fetch('IMAP_ENABLE_PEEK', 'false') == 'true'
+    if ENV['ENABLE_IMAP_CRM'] == 'true'
       mail_str = imap_client.fetch(seq_no, 'BODY.PEEK[]')[0].attr['BODY[]']
     else
       mail_str = imap_client.fetch(seq_no, 'RFC822')[0].attr['RFC822']

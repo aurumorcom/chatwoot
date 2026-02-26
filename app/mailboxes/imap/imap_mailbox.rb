@@ -5,7 +5,7 @@ class Imap::ImapMailbox
 
   FALLBACK_CONVERSATION_PATTERN = %r{account/(\d+)/conversation/([a-zA-Z0-9-]+)@}
 
-  def process(mail, channel)
+  def process(mail, channel, folder: nil)
     @inbound_mail = mail
     @channel = channel
     load_account
@@ -17,16 +17,15 @@ class Imap::ImapMailbox
     # Skip processing email if it belongs to any of the edge cases
     return unless incoming_email_from_valid_email?
 
-    # Check if this inbox is configured for "Contacts Only" mode
-    restricted_emails = ENV['IMAP_CONTACTS_ONLY_EMAILS'].to_s.split(',').map { |e| e.strip.downcase }
-
-    if restricted_emails.include?(channel.email.to_s.downcase)
+    # Check if CRM mode is enabled (enforces Contacts Only for all accounts)
+    if ENV['ENABLE_IMAP_CRM'] == 'true' && folder != 'Leads'
       # Check if sender exists as a contact in this account
-      contact = @account.contacts.from_email(@processed_mail.original_sender)
+      email_to_check = outgoing_email? ? @processed_mail.to&.first : @processed_mail.original_sender
+      contact = @account.contacts.from_email(email_to_check)
 
       # If contact does not exist, ignore the email and stop processing
       unless contact
-        Rails.logger.info("Ignoring email from unknown sender #{@processed_mail.original_sender} for restricted inbox #{channel.email}")
+        Rails.logger.info("Ignoring email from unknown sender #{email_to_check} for restricted inbox #{channel.email}")
         return
       end
     end
@@ -124,7 +123,8 @@ class Imap::ImapMailbox
   end
 
   def find_or_create_contact
-    @contact = @inbox.contacts.from_email(@processed_mail.original_sender)
+    email = outgoing_email? ? @processed_mail.to&.first : @processed_mail.original_sender
+    @contact = @inbox.contacts.from_email(email)
     if @contact.present?
       @contact_inbox = ContactInbox.find_by(inbox: @inbox, contact: @contact)
     else
@@ -132,8 +132,52 @@ class Imap::ImapMailbox
     end
   end
 
+  def create_contact
+    email = outgoing_email? ? @processed_mail.to&.first : @processed_mail.original_sender
+    @contact_inbox = ::ContactInboxWithContactBuilder.new(
+      source_id: email,
+      inbox: @inbox,
+      contact_attributes: {
+        name: identify_contact_name,
+        email: email,
+        additional_attributes: { source_id: "email:#{processed_mail.message_id}" }
+      }
+    ).perform
+
+    @contact = @contact_inbox.contact
+    Rails.logger.info "[MailboxHelper] Contact created with ID: #{@contact.id} for inbox with ID: #{@inbox.id}"
+  end
+
   def identify_contact_name
-    processed_mail.sender_name || processed_mail.from.first.split('@').first
+    if outgoing_email?
+      @processed_mail.to&.first&.split('@')&.first
+    else
+      processed_mail.sender_name || processed_mail.from.first.split('@').first
+    end
+  end
+
+  def create_message
+    Rails.logger.info "[MailboxHelper] Creating message #{processed_mail.message_id}"
+    return if @conversation.messages.find_by(source_id: processed_mail.message_id).present?
+
+    @message = @conversation.messages.create!(
+      account_id: @conversation.account_id,
+      sender: outgoing_email? ? nil : @conversation.contact,
+      content: mail_content&.truncate(150_000),
+      inbox_id: @conversation.inbox_id,
+      message_type: outgoing_email? ? 'outgoing' : 'incoming',
+      content_type: 'incoming_email',
+      source_id: processed_mail.message_id,
+      content_attributes: {
+        email: processed_mail.serialized_data,
+        cc_email: processed_mail.cc,
+        bcc_email: processed_mail.bcc
+      }
+    )
+  end
+
+  def outgoing_email?
+    @processed_mail.from.include?(@channel.email.downcase)
   end
 end
 
