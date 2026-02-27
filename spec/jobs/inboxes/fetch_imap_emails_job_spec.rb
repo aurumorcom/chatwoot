@@ -56,6 +56,16 @@ RSpec.describe Inboxes::FetchImapEmailsJob do
         described_class.perform_now(imap_email_channel, 4)
         expect(fetch_service).to have_received(:perform)
       end
+
+      it 'uses the configured interval from ENV' do
+        fetch_service = double
+        expect(Imap::FetchEmailService).to receive(:new).with(channel: imap_email_channel, interval: 10).and_return(fetch_service)
+        expect(fetch_service).to receive(:perform).and_return([])
+
+        with_modified_env(IMAP_EMAIL_READ_LENGTH: '10') do
+          described_class.perform_now(imap_email_channel)
+        end
+      end
     end
 
     context 'when the channel is Microsoft' do
@@ -106,7 +116,7 @@ RSpec.describe Inboxes::FetchImapEmailsJob do
 
         expect(Imap::FetchEmailService).to receive(:new).with(channel: imap_email_channel, interval: 1).and_return(fetch_service)
         expect(fetch_service).to receive(:perform).and_return([inbound_mail])
-        expect(mailbox).to receive(:process).with(inbound_mail, imap_email_channel)
+        expect(mailbox).to receive(:process).with(inbound_mail, imap_email_channel, folder: nil)
 
         described_class.perform_now(imap_email_channel)
       end
