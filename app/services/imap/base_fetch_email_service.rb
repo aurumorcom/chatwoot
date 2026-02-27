@@ -43,7 +43,7 @@ class Imap::BaseFetchEmailService
 
   def fetch_mail_for_channel
     folders = ['INBOX']
-    if ENV['ENABLE_IMAP_CRM'] == 'true'
+    if channel.inbox.personal_inbox?
       folders += SENT_FOLDERS
       folders += ['Leads']
     end
@@ -78,7 +78,7 @@ class Imap::BaseFetchEmailService
     return if email_already_present?(channel, message_id)
 
     # Fetch the original mail content using the sequence no
-    if ENV['ENABLE_IMAP_CRM'] == 'true'
+    if channel.inbox.personal_inbox?
       mail_str = imap_client.fetch(seq_no, 'BODY.PEEK[]')[0].attr['BODY[]']
     else
       mail_str = imap_client.fetch(seq_no, 'RFC822')[0].attr['RFC822']

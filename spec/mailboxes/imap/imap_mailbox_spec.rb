@@ -330,5 +330,58 @@ RSpec.describe Imap::ImapMailbox do
         expect(conversation.messages.last.sender).to be_nil
       end
     end
+
+    context 'when personal_inbox is enabled' do
+      before do
+        inbox.update(personal_inbox: true)
+      end
+
+      it 'ignores email from unknown sender' do
+        inbound_mail = create_inbound_email_from_mail(from: 'unknown@example.com', to: channel.email, subject: 'Hello!')
+        
+        expect do
+          class_instance.process(inbound_mail.mail, channel)
+        end.not_to change(Conversation, :count)
+      end
+
+      it 'processes email from existing contact' do
+        contact = create(:contact, email: 'known@example.com', account: channel.account)
+        inbound_mail = create_inbound_email_from_mail(from: 'known@example.com', to: channel.email, subject: 'Hello!')
+
+        expect do
+          class_instance.process(inbound_mail.mail, channel)
+        end.to change(Conversation, :count).by(1)
+        
+        expect(Conversation.last.contact).to eq(contact)
+      end
+
+      it 'processes email from unknown sender if folder is Leads' do
+        inbound_mail = create_inbound_email_from_mail(from: 'unknown@example.com', to: channel.email, subject: 'Hello!')
+
+        expect do
+          class_instance.process(inbound_mail.mail, channel, folder: 'Leads')
+        end.to change(Conversation, :count).by(1)
+      end
+
+      it 'ignores outgoing email to unknown recipient' do
+        inbound_mail = create_inbound_email_from_mail(from: channel.email, to: 'unknown@example.com', subject: 'Hello!')
+
+        expect do
+          class_instance.process(inbound_mail.mail, channel)
+        end.not_to change(Conversation, :count)
+      end
+
+      it 'processes outgoing email to existing contact' do
+        contact = create(:contact, email: 'known@example.com', account: channel.account)
+        inbound_mail = create_inbound_email_from_mail(from: channel.email, to: 'known@example.com', subject: 'Hello!')
+
+        expect do
+          class_instance.process(inbound_mail.mail, channel)
+        end.to change(Conversation, :count).by(1)
+        
+        expect(Conversation.last.contact).to eq(contact)
+      end
+    end
+
   end
 end

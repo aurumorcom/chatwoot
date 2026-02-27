@@ -84,6 +84,7 @@ export default {
       senderNameType: 'friendly',
       businessName: '',
       locktoSingleConversation: false,
+      personalInbox: false,
       allowMessagesAfterResolved: true,
       continuityViaEmail: true,
       selectedInboxName: '',
@@ -388,6 +389,7 @@ export default {
       this.selectedFeatureFlags = this.inbox.selected_feature_flags || [];
       this.replyTime = this.inbox.reply_time;
       this.locktoSingleConversation = this.inbox.lock_to_single_conversation;
+      this.personalInbox = this.inbox.personal_inbox;
       this.selectedPortalSlug = this.inbox.help_center
         ? this.inbox.help_center.slug
         : '';
@@ -485,6 +487,7 @@ export default {
               )?.id || null
             : null,
           lock_to_single_conversation: this.locktoSingleConversation,
+          personal_inbox: this.personalInbox,
           sender_name_type: this.senderNameType,
           business_name: this.businessName || null,
           channel: {
@@ -1094,6 +1097,18 @@ export default {
                 :description="
                   $t(
                     'INBOX_MGMT.SETTINGS_POPUP.ENABLE_CONTINUITY_VIA_EMAIL_SUB_TEXT'
+                  )
+                "
+              />
+
+              <SettingsToggleSection
+                v-model="personalInbox"
+                :header="
+                  $t('INBOX_MGMT.SETTINGS_POPUP.ENABLE_PERSONAL_INBOX')
+                "
+                :description="
+                  $t(
+                    'INBOX_MGMT.SETTINGS_POPUP.ENABLE_PERSONAL_INBOX_SUB_TEXT'
                   )
                 "
               />

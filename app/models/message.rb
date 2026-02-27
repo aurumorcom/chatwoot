@@ -310,11 +310,21 @@ class Message < ApplicationRecord
   def execute_after_create_commit_callbacks
     # rails issue with order of active record callbacks being executed https://github.com/rails/rails/issues/20911
     reopen_conversation
+    trigger_auto_assignment
     set_conversation_activity
     dispatch_create_events
     send_reply
     execute_message_template_hooks
     update_contact_activity
+  end
+
+  def trigger_auto_assignment
+    return unless incoming?
+    return unless conversation.open?
+    return unless conversation.assignee_id.blank?
+
+    conversation.reload
+    conversation.perform_auto_assignment
   end
 
   def update_contact_activity
