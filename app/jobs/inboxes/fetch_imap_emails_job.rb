@@ -3,7 +3,7 @@ require 'net/imap'
 class Inboxes::FetchImapEmailsJob < MutexApplicationJob
   queue_as :scheduled_jobs
 
-  def perform(channel, interval = 1)
+  def perform(channel, interval = ENV.fetch('IMAP_EMAIL_READ_LENGTH', 1).to_i)
     return unless should_fetch_email?(channel)
 
     key = format(::Redis::Alfred::EMAIL_MESSAGE_MUTEX, inbox_id: channel.inbox.id)
