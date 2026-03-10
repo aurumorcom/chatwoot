@@ -162,7 +162,7 @@ class Imap::ImapMailbox
 
     @message = @conversation.messages.create!(
       account_id: @conversation.account_id,
-      sender: outgoing_email? ? nil : @conversation.contact,
+      sender: outgoing_email? ? find_sender_for_outgoing_message : @conversation.contact,
       content: mail_content&.truncate(150_000),
       inbox_id: @conversation.inbox_id,
       message_type: outgoing_email? ? 'outgoing' : 'incoming',
@@ -174,6 +174,10 @@ class Imap::ImapMailbox
         bcc_email: processed_mail.bcc
       }
     )
+  end
+
+  def find_sender_for_outgoing_message
+    @account.users.find_by(email: @channel.email)
   end
 
   def outgoing_email?
