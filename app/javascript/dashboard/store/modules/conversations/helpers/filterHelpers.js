@@ -46,8 +46,8 @@
  * 2. Nested properties in additional_attributes (browser_language, referer, etc.)
  * 3. Nested properties in custom_attributes (conversation_type, etc.)
  */
-import jsonLogic from 'json-logic-js';
 import { coerceToDate } from '@chatwoot/utils';
+import jsonLogic from 'json-logic-js';
 
 /**
  * Gets a value from a conversation based on the attribute key
@@ -73,6 +73,12 @@ const getValueFromConversation = (conversation, attributeKey) => {
       return conversation.display_id || conversation.id;
     case 'assignee_id':
       return conversation.meta?.assignee?.id;
+    case 'contact_id':
+      return (
+        conversation.meta?.sender?.id ||
+        conversation.contact?.id ||
+        conversation.contact_id
+      );
     case 'inbox_id':
       return conversation.inbox_id;
     case 'team_id':
@@ -121,7 +127,8 @@ const resolveValue = candidate => {
  * @returns {Boolean} - Returns true if the values are considered equal according to filtering rules
  *
  * This function handles various equality scenarios:
- * 1. When both values are arrays: checks if all items in filterValue exist in conversationValue
+ * 1. When both values are arrays (e.g. labels): matches if any filter value exists in the conversation array
+ *    (mirrors the backend SQL `tag_id IN (...)` OR semantics)
  * 2. When filterValue is an array but conversationValue is not: checks if conversationValue is included in filterValue
  * 3. Otherwise: performs strict equality comparison
  */
@@ -131,8 +138,9 @@ const equalTo = (filterValue, conversationValue) => {
     if (filterValue === 'all') return true;
 
     if (Array.isArray(conversationValue)) {
-      // For array values like labels, check if any of the filter values exist in the array
-      return filterValue.every(val => conversationValue.includes(val));
+      // For array values like labels, match if any filter value is present.
+      // Mirrors the backend SQL `tag_id IN (...)` (OR semantics).
+      return filterValue.some(val => conversationValue.includes(val));
     }
 
     if (!Array.isArray(conversationValue)) {
@@ -240,6 +248,24 @@ const matchesCondition = (conversationValue, filter) => {
   }
 };
 
+const matchesConversationCondition = (conversation, filter) => {
+  const isHumanAssigneeFilter =
+    filter.attribute_key === 'assignee_id' &&
+    ['equal_to', 'not_equal_to'].includes(filter.filter_operator);
+
+  if (
+    isHumanAssigneeFilter &&
+    conversation.meta?.assignee_type === 'AgentBot'
+  ) {
+    return false;
+  }
+
+  return matchesCondition(
+    getValueFromConversation(conversation, filter.attribute_key),
+    filter
+  );
+};
+
 /**
  * Converts an array of evaluated filters into a JSON Logic rule
  * that respects SQL-like operator precedence (AND before OR)
@@ -343,8 +369,7 @@ const buildJsonLogicRule = evaluatedFilters => {
  */
 const evaluateFilters = (conversation, filters) => {
   return filters.map((filter, index) => {
-    const value = getValueFromConversation(conversation, filter.attribute_key);
-    const result = matchesCondition(value, filter);
+    const result = matchesConversationCondition(conversation, filter);
 
     // This part determines the logical operator that connects this filter to the next one:
     // - If this is not the last filter (index < filters.length - 1), use the filter's query_operator
@@ -371,12 +396,7 @@ export const matchesFilters = (conversation, filters) => {
 
   // Handle single filter case
   if (filters.length === 1) {
-    const value = getValueFromConversation(
-      conversation,
-      filters[0].attribute_key
-    );
-
-    return matchesCondition(value, filters[0]);
+    return matchesConversationCondition(conversation, filters[0]);
   }
 
   // Evaluate all conditions and prepare for jsonLogic

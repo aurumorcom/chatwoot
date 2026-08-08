@@ -150,6 +150,7 @@ export const getConditionOptions = ({
     conversation_language: languages,
     country_code: countries,
     message_type: messageTypeOptions,
+    private_note: booleanFilterOptions,
     priority: priorityOptions,
     labels: generateConditionOptions(labels, 'title'),
   };
@@ -205,6 +206,12 @@ export const generateAutomationPayload = payload => {
   automation.conditions = filterQueryGenerator(automation.conditions).payload;
   automation.actions = actionQueryGenerator(automation.actions);
   return automation;
+};
+
+export const formatDelay = minutes => {
+  if (minutes % 1440 === 0) return `${minutes / 1440}d`;
+  if (minutes % 60 === 0) return `${minutes / 60}h`;
+  return `${minutes}m`;
 };
 
 export const isCustomAttribute = (attrs, key) => {

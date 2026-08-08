@@ -31,6 +31,7 @@ import FileBubble from './bubbles/File.vue';
 import AudioBubble from './bubbles/Audio.vue';
 import VideoBubble from './bubbles/Video.vue';
 import EmbedBubble from './bubbles/Embed.vue';
+import FallbackBubble from './bubbles/Fallback.vue';
 import InstagramStoryBubble from './bubbles/InstagramStory.vue';
 import EmailBubble from './bubbles/Email/Index.vue';
 import UnsupportedBubble from './bubbles/Unsupported.vue';
@@ -40,6 +41,7 @@ import LocationBubble from './bubbles/Location.vue';
 import CSATBubble from './bubbles/CSAT.vue';
 import FormBubble from './bubbles/Form.vue';
 import VoiceCallBubble from './bubbles/VoiceCall.vue';
+import WhatsappFlowResponseBubble from './bubbles/WhatsappFlowResponse.vue';
 
 import MessageError from './MessageError.vue';
 import ContextMenu from 'dashboard/modules/conversations/components/MessageContextMenu.vue';
@@ -113,6 +115,7 @@ const props = defineProps({
     validator: value => Object.values(MESSAGE_STATUS).includes(value),
   },
   attachments: { type: Array, default: () => [] },
+  call: { type: Object, default: null }, // eslint-disable-line vue/no-unused-properties
   content: { type: String, default: null },
   contentAttributes: { type: Object, default: () => ({}) },
   contentType: {
@@ -145,7 +148,13 @@ const { t } = useI18n();
 const route = useRoute();
 const inboxGetter = useMapGetter('inboxes/getInbox');
 const inbox = computed(() => inboxGetter.value(props.inboxId) || {});
+const isOnChatwootCloud = useMapGetter('globalConfig/isOnChatwootCloud');
 const { replaceInstallationName } = useBranding();
+
+const isCaptainMessage = computed(() => {
+  const senderType = props.sender?.type ?? props.senderType;
+  return senderType === SENDER_TYPES.CAPTAIN_ASSISTANT;
+});
 
 /**
  * Computes the message variant based on props
@@ -288,6 +297,10 @@ const componentToRender = computed(() => {
     if (emailInboxTypes.includes(props.messageType)) return EmailBubble;
   }
 
+  if (props.contentAttributes?.whatsappFlowResponse) {
+    return WhatsappFlowResponseBubble;
+  }
+
   if (props.contentType === CONTENT_TYPES.INPUT_CSAT) {
     return CSATBubble;
   }
@@ -326,6 +339,8 @@ const componentToRender = computed(() => {
 
   if (Array.isArray(props.attachments) && props.attachments.length === 1) {
     const fileType = props.attachments[0].fileType;
+
+    if (fileType === ATTACHMENT_TYPES.FALLBACK) return FallbackBubble;
 
     if (!props.content) {
       if (fileType === ATTACHMENT_TYPES.IMAGE) return ImageBubble;
@@ -386,6 +401,10 @@ const contextMenuEnabledOptions = computed(() => {
       !props.private &&
       props.inboxSupportsReplyTo.outgoing &&
       !isFailedOrProcessing,
+    report:
+      isOnChatwootCloud.value &&
+      isCaptainMessage.value &&
+      !isMessageDeleted.value,
   };
 });
 
@@ -395,6 +414,8 @@ const shouldRenderMessage = computed(() => {
   const isUnsupported = props.contentAttributes?.isUnsupported;
   const isAnIntegrationMessage =
     props.contentType === CONTENT_TYPES.INTEGRATIONS;
+  const hasWhatsappFlowResponse =
+    !!props.contentAttributes?.whatsappFlowResponse;
   const isFailedMessage = props.status === MESSAGE_STATUS.FAILED;
   const hasExternalError = !!props.contentAttributes?.externalError;
 
@@ -404,6 +425,7 @@ const shouldRenderMessage = computed(() => {
     isEmailContentType ||
     isUnsupported ||
     isAnIntegrationMessage ||
+    hasWhatsappFlowResponse ||
     isFailedMessage ||
     hasExternalError
   );
@@ -443,10 +465,11 @@ function handleReplyTo() {
 
 const avatarInfo = computed(() => {
   if (props.contentAttributes?.externalEcho) {
-    const { name, avatar_url, channel_type, medium } = inbox.value;
+    const { name, avatar_url, channel_type, medium, voice_enabled } =
+      inbox.value;
     const iconName = avatar_url
       ? null
-      : getInboxIconByType(channel_type, medium);
+      : getInboxIconByType(channel_type, medium, 'fill', voice_enabled);
     return {
       name: iconName ? '' : name || t('CONVERSATION.NATIVE_APP'),
       src: avatar_url || '',
@@ -553,11 +576,10 @@ provideMessageContext({
         <Avatar v-bind="avatarInfo" :size="24" />
       </div>
       <div
-        class="[grid-area:bubble] flex"
+        class="[grid-area:bubble] flex min-w-0"
         :class="{
           'ltr:ml-8 rtl:mr-8 justify-end': orientation === ORIENTATION.RIGHT,
           'ltr:mr-8 rtl:ml-8': orientation === ORIENTATION.LEFT,
-          'min-w-0': variant === MESSAGE_VARIANTS.EMAIL,
         }"
         @contextmenu="openContextMenu($event)"
       >

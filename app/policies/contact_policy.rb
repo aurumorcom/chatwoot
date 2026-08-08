@@ -55,3 +55,5 @@ class ContactPolicy < ApplicationPolicy
     true
   end
 end
+
+ContactPolicy.prepend_mod_with('ContactPolicy')
