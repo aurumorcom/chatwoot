@@ -5,7 +5,7 @@ class Imap::ImapMailbox
 
   FALLBACK_CONVERSATION_PATTERN = %r{account/(\d+)/conversation/([a-zA-Z0-9-]+)@}
 
-  def process(mail, channel)
+  def process(mail, channel, folder: nil)
     @inbound_mail = mail
     @channel = channel
     load_account
@@ -16,6 +16,9 @@ class Imap::ImapMailbox
 
     # Skip processing email if it belongs to any of the edge cases
     return unless incoming_email_from_valid_email?
+
+    email_to_check = outgoing_email? ? @processed_mail.to&.first : @processed_mail.original_sender
+    return unless InboxCrmPolicy.new(inbox: @inbox, account: @account).allow_email_processing?(email_to_check, folder: folder)
 
     ActiveRecord::Base.transaction do
       find_or_create_contact
@@ -107,7 +110,8 @@ class Imap::ImapMailbox
   end
 
   def find_or_create_contact
-    @contact = @inbox.contacts.from_email(original_sender_email)
+    email = outgoing_email? ? @processed_mail.to&.first : original_sender_email
+    @contact = @inbox.contacts.from_email(email)
     if @contact.present?
       @contact_inbox = ContactInbox.find_by(inbox: @inbox, contact: @contact)
     else
@@ -115,8 +119,58 @@ class Imap::ImapMailbox
     end
   end
 
+  def create_contact
+    email = outgoing_email? ? @processed_mail.to&.first : original_sender_email
+    @contact_inbox = ::ContactInboxWithContactBuilder.new(
+      source_id: email,
+      inbox: @inbox,
+      contact_attributes: {
+        name: identify_contact_name,
+        email: email,
+        additional_attributes: { source_id: "email:#{processed_mail.message_id}" }
+      }
+    ).perform
+
+    @contact = @contact_inbox.contact
+    Rails.logger.info "[MailboxHelper] Contact created with ID: #{@contact.id} for inbox with ID: #{@inbox.id}"
+  end
+
   def identify_contact_name
-    sanitize_mailbox_value(processed_mail.sender_name || processed_mail.from.first.split('@').first)
+    if outgoing_email?
+      sanitize_mailbox_value(@processed_mail.to&.first&.split('@')&.first)
+    else
+      sanitize_mailbox_value(processed_mail.sender_name || processed_mail.from.first.split('@').first)
+    end
+  end
+
+  def create_message
+    message_id = sanitize_mailbox_value(processed_mail.message_id)
+    return if @conversation.messages.find_by(source_id: message_id).present?
+
+    @message = @conversation.messages.create!(
+      account_id: @conversation.account_id,
+      sender: outgoing_email? ? find_sender_for_outgoing_message : @conversation.contact,
+      content: sanitize_mailbox_value(mail_content)&.truncate(150_000),
+      inbox_id: @conversation.inbox_id,
+      message_type: outgoing_email? ? 'outgoing' : 'incoming',
+      content_type: 'incoming_email',
+      source_id: message_id,
+      content_attributes: {
+        email: processed_mail.serialized_data,
+        cc_email: processed_mail.cc,
+        bcc_email: processed_mail.bcc
+      }
+    )
+  end
+
+  def find_sender_for_outgoing_message
+    @account.users.find_by(email: @channel.email.to_s.downcase)
+  end
+
+  def outgoing_email?
+    return false if @processed_mail.from.blank? || @channel.email.blank?
+
+    @processed_mail.from.map(&:downcase).include?(@channel.email.downcase)
   end
 
   def original_sender_email
