@@ -3,7 +3,7 @@ require 'net/imap'
 class Inboxes::FetchImapEmailsJob < MutexApplicationJob
   queue_as :scheduled_jobs
 
-  def perform(channel, interval = 1)
+  def perform(channel, interval = ENV.fetch('IMAP_EMAIL_READ_LENGTH', 1).to_i)
     Rails.logger.info "[IMAP::FETCH_EMAIL_SERVICE] Job started for inbox #{channel.inbox.id}"
 
     return log_skipped_fetch(channel) unless should_fetch_email?(channel)
@@ -67,8 +67,12 @@ class Inboxes::FetchImapEmailsJob < MutexApplicationJob
 
     Rails.logger.info "[IMAP::FETCH_EMAIL_SERVICE] Fetched #{inbound_emails.length} new emails for inbox #{channel.inbox.id}"
 
-    inbound_emails.each do |inbound_mail|
-      process_mail(inbound_mail, channel)
+    inbound_emails.each do |item|
+      if item.is_a?(Hash)
+        process_mail(item[:mail], channel, folder: item[:folder])
+      else
+        process_mail(item, channel)
+      end
     end
 
     Rails.logger.info "[IMAP::FETCH_EMAIL_SERVICE] Finished processing fetched emails for inbox #{channel.inbox.id}"
@@ -89,7 +93,7 @@ class Inboxes::FetchImapEmailsJob < MutexApplicationJob
     Rails.cache.write("email_failures:#{message_id}", failure_count + 1, expires_in: 6.hours)
   end
 
-  def process_mail(inbound_mail, channel)
+  def process_mail(inbound_mail, channel, folder: nil)
     # Skip if this email has failed multiple times recently
     if should_skip_email?(inbound_mail.message_id)
       Rails.logger.warn "[IMAP] Skipping problematic email: #{inbound_mail.message_id}"
@@ -98,7 +102,7 @@ class Inboxes::FetchImapEmailsJob < MutexApplicationJob
 
     begin
       Timeout.timeout(email_processing_timeout) do
-        Imap::ImapMailbox.new.process(inbound_mail, channel)
+        Imap::ImapMailbox.new.process(inbound_mail, channel, folder: folder)
       end
     rescue Timeout::Error
       mark_email_as_failed(inbound_mail.message_id)
