@@ -316,6 +316,55 @@ RSpec.describe Imap::ImapMailbox do
       end
     end
 
+    context 'when the email is outgoing (from channel email)' do
+      let(:channel_email) { channel.email }
+      let(:recipient_email) { 'customer@example.com' }
+      let(:outgoing_mail) { create_inbound_email_from_mail(from: channel_email, to: recipient_email, subject: 'Outgoing!') }
+
+      it 'creates an outgoing message and finds contact from recipient' do
+        expect do
+          class_instance.process(outgoing_mail.mail, channel)
+        end.to change(Conversation, :count).by(1)
+
+        conversation = Conversation.last
+        expect(conversation.contact.email).to eq(recipient_email)
+        expect(conversation.messages.last.message_type).to eq('outgoing')
+      end
+    end
+
+    context 'when personal_inbox_enabled is true' do
+      before do
+        inbox.update(personal_inbox_enabled: true)
+      end
+
+      it 'ignores email from unknown sender' do
+        inbound_mail = create_inbound_email_from_mail(from: 'unknown@example.com', to: channel.email, subject: 'Hello!')
+
+        expect do
+          class_instance.process(inbound_mail.mail, channel)
+        end.not_to change(Conversation, :count)
+      end
+
+      it 'processes email from existing contact' do
+        contact = create(:contact, email: 'known@example.com', account: channel.account)
+        inbound_mail = create_inbound_email_from_mail(from: 'known@example.com', to: channel.email, subject: 'Hello!')
+
+        expect do
+          class_instance.process(inbound_mail.mail, channel)
+        end.to change(Conversation, :count).by(1)
+
+        expect(Conversation.last.contact).to eq(contact)
+      end
+
+      it 'processes email from unknown sender if folder is Leads' do
+        inbound_mail = create_inbound_email_from_mail(from: 'unknown@example.com', to: channel.email, subject: 'Hello!')
+
+        expect do
+          class_instance.process(inbound_mail.mail, channel, folder: 'Leads')
+        end.to change(Conversation, :count).by(1)
+      end
+    end
+
     context 'when references contain both message and fallback patterns' do
       let(:agent_conversation) { create(:conversation, account: account, inbox: channel.inbox, assignee: agent) }
       let(:reply_mail_with_multiple_references) do

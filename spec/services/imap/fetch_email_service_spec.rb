@@ -90,7 +90,8 @@ RSpec.describe Imap::FetchEmailService do
           result = described_class.new(channel: imap_email_channel).perform
 
           expect(result.length).to eq 1
-          expect(result[0].message_id).to eq email_object.message_id
+          expect(result[0][:mail].message_id).to eq email_object.message_id
+          expect(result[0][:folder]).to eq 'INBOX'
           expect(imap).to have_received(:search).with(%w[SINCE 25-Oct-2020])
           expect(imap).to have_received(:fetch).with([1], 'BODY.PEEK[HEADER]')
           expect(imap).to have_received(:fetch).with(1, 'BODY.PEEK[]')
