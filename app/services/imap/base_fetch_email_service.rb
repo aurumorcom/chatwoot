@@ -46,10 +46,40 @@ class Imap::BaseFetchEmailService
     @deleted_message_tracker ||= Imap::DeletedMessageTracker.new(inbox: channel.inbox)
   end
 
+  FALLBACK_SENT_FOLDERS = ['Sent', 'Sent Items', '[Gmail]/Sent Mail', 'Sent Messages'].freeze
+
+  def discover_sent_folders
+    @discover_sent_folders ||= begin
+      special_sent = imap_client.list('', '*').to_a.select { |f| f.attr.include?(:Sent) }.map(&:name)
+      special_sent.presence || FALLBACK_SENT_FOLDERS
+    rescue StandardError
+      FALLBACK_SENT_FOLDERS
+    end
+  end
+
   def fetch_mail_for_channel
+    folders = ['INBOX']
+    if channel.inbox.personal_inbox_enabled?
+      folders += discover_sent_folders
+      folders += ['Leads']
+    end
+
+    folders.flat_map do |folder|
+      fetch_mail_from_folder(folder)
+    end
+  end
+
+  def fetch_mail_from_folder(folder)
+    begin
+      imap_client.select(folder)
+    rescue Net::IMAP::NoResponseError
+      return []
+    end
+
     message_ids_with_seq = fetch_message_ids_with_sequence
     message_ids_with_seq.filter_map do |message_id_with_seq|
-      process_message_id(message_id_with_seq)
+      mail = process_message_id(message_id_with_seq)
+      { mail: mail, folder: folder } if mail.present?
     end
   end
 
