@@ -56,6 +56,16 @@ RSpec.describe Inboxes::FetchImapEmailsJob do
         described_class.perform_now(imap_email_channel, 4)
         expect(fetch_service).to have_received(:perform)
       end
+
+      it 'uses the configured interval from ENV when not provided' do
+        fetch_service = double
+        expect(Imap::FetchEmailService).to receive(:new).with(channel: imap_email_channel, interval: 7).and_return(fetch_service)
+        expect(fetch_service).to receive(:perform).and_return([])
+
+        with_modified_env(IMAP_EMAIL_READ_LENGTH: '7') do
+          described_class.perform_now(imap_email_channel)
+        end
+      end
     end
 
     context 'when the channel is Microsoft' do
@@ -114,7 +124,7 @@ RSpec.describe Inboxes::FetchImapEmailsJob do
 
         expect(Imap::FetchEmailService).to receive(:new).with(channel: imap_email_channel, interval: 1).and_return(fetch_service)
         expect(fetch_service).to receive(:perform).and_return([inbound_mail])
-        expect(mailbox).to receive(:process).with(inbound_mail, imap_email_channel)
+        expect(mailbox).to receive(:process).with(inbound_mail, imap_email_channel, folder: nil)
 
         described_class.perform_now(imap_email_channel)
       end
@@ -131,13 +141,13 @@ RSpec.describe Inboxes::FetchImapEmailsJob do
 
       it 'continues processing remaining emails when one email fails' do
         allow(fetch_service).to receive(:perform).and_return([inbound_mail, second_inbound_mail])
-        allow(mailbox).to receive(:process).with(inbound_mail, imap_email_channel).and_raise(StandardError)
-        allow(mailbox).to receive(:process).with(second_inbound_mail, imap_email_channel)
+        allow(mailbox).to receive(:process).with(inbound_mail, imap_email_channel, folder: nil).and_raise(StandardError)
+        allow(mailbox).to receive(:process).with(second_inbound_mail, imap_email_channel, folder: nil)
         allow(exception_tracker).to receive(:capture_exception)
 
         described_class.perform_now(imap_email_channel)
 
-        expect(mailbox).to have_received(:process).with(second_inbound_mail, imap_email_channel)
+        expect(mailbox).to have_received(:process).with(second_inbound_mail, imap_email_channel, folder: nil)
       end
 
       it 'skips emails that have failed multiple times recently' do
